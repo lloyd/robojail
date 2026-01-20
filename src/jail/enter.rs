@@ -17,17 +17,24 @@ pub fn enter(name: &str, config: &Config) -> Result<()> {
     }
 
     let worktree_path = jail.worktree_path.clone();
+    let entrypoint = jail.entrypoint.clone();
 
     // Update PID in state (we use our PID as a marker that we're running)
     // The actual sandbox runs in a child process
     state.set_pid(name, Some(std::process::id()))?;
 
     // Create and enter sandbox
-    let sandbox = create_jail_sandbox(&worktree_path, config);
+    let sandbox = create_jail_sandbox(&worktree_path, config, entrypoint.as_deref());
 
-    println!("Entering jail '{}'...", name);
-
-    let exit_code = sandbox.enter(&config.default_shell)?;
+    // Determine what to run
+    let exit_code = if let Some(ref ep) = entrypoint {
+        let display_cmd = ep.join(" ");
+        println!("Running '{}' in jail '{}'...", display_cmd, name);
+        sandbox.run(ep)?
+    } else {
+        println!("Entering jail '{}'...", name);
+        sandbox.enter(&config.default_shell)?
+    };
 
     // Clear PID on exit
     let mut state = State::load()?;

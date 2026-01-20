@@ -22,8 +22,8 @@ fn run() -> Result<()> {
     let config = config::Config::load()?;
 
     match cli.command {
-        Command::Create { name, repo, branch } => {
-            jail::create(&name, &repo, branch.as_deref(), &config)?;
+        Command::Create { name, repo, branch, entrypoint } => {
+            jail::create(&name, &repo, branch.as_deref(), entrypoint.as_deref(), &config)?;
         }
         Command::List { json } => {
             jail::list(json)?;

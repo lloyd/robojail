@@ -28,6 +28,11 @@ pub enum Command {
         /// Branch to base the worktree on (defaults to HEAD)
         #[arg(short, long)]
         branch: Option<String>,
+
+        /// Entrypoint program to run (e.g., 'claude', '/usr/bin/python')
+        /// The binary will be auto-detected and bind-mounted into the jail
+        #[arg(short, long)]
+        entrypoint: Option<String>,
     },
 
     /// List all jails

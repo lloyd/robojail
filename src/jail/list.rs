@@ -7,6 +7,8 @@ struct JailListEntry {
     name: String,
     repo: String,
     branch: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entrypoint: Option<String>,
     created: String,
     status: String,
 }
@@ -38,6 +40,7 @@ pub fn list(json: bool) -> Result<()> {
                     name: j.name.clone(),
                     repo: j.repo_path.display().to_string(),
                     branch: j.branch_name.clone(),
+                    entrypoint: j.entrypoint.as_ref().map(|ep| ep.join(" ")),
                     created: j.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
                     status,
                 }
@@ -70,9 +73,20 @@ pub fn list(json: bool) -> Result<()> {
                 .strip_prefix("robojail/")
                 .unwrap_or(&jail.branch_name);
 
+            // Show entrypoint indicator if set
+            let name_display = if let Some(ref ep) = jail.entrypoint {
+                let ep_name = std::path::Path::new(&ep[0])
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "?".to_string());
+                format!("{} (→{})", jail.name, ep_name)
+            } else {
+                jail.name.clone()
+            };
+
             println!(
                 "{:<20} {:<30} {:<25} {:<20} {:<10}",
-                truncate(&jail.name, 19),
+                truncate(&name_display, 19),
                 truncate(&repo_display, 29),
                 truncate(branch_display, 24),
                 jail.created_at.format("%Y-%m-%d %H:%M"),

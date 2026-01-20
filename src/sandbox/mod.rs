@@ -194,7 +194,8 @@ impl Sandbox {
         }
 
         // Set required environment
-        std::env::set_var("HOME", "/");
+        std::env::set_var("HOME", "/home/user");
+        std::env::set_var("USER", "user");
         std::env::set_var("PATH", "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin");
         std::env::set_var("ROBOJAIL", "1");
 
@@ -264,8 +265,8 @@ impl Sandbox {
         std::fs::create_dir_all(&etc_dst)?;
         mount::mount_tmpfs(&etc_dst)?;
 
-        // Copy essential etc files
-        for file in &["resolv.conf", "hosts", "passwd", "group", "nsswitch.conf"] {
+        // Copy essential etc files (but not passwd/group - we create our own)
+        for file in &["resolv.conf", "hosts", "nsswitch.conf"] {
             let src = Path::new("/etc").join(file);
             let dst = etc_dst.join(file);
             if src.exists() {
@@ -274,6 +275,18 @@ impl Sandbox {
                 }
             }
         }
+
+        // Create custom /etc/passwd with our jail user (UID 1000)
+        let passwd_content = "root:x:0:0:root:/root:/bin/bash\nuser:x:1000:1000:Jail User:/home/user:/bin/bash\nnobody:x:65534:65534:Nobody:/:/usr/bin/nologin\n";
+        let _ = std::fs::write(etc_dst.join("passwd"), passwd_content);
+
+        // Create custom /etc/group with our jail group (GID 1000)
+        let group_content = "root:x:0:\nuser:x:1000:\nnogroup:x:65534:\n";
+        let _ = std::fs::write(etc_dst.join("group"), group_content);
+
+        // Create home directory for the jail user
+        let home_dst = new_root.join("home/user");
+        std::fs::create_dir_all(&home_dst)?;
 
         // Bind mount /etc/ssl for TLS
         let ssl_src = Path::new("/etc/ssl");
@@ -310,7 +323,15 @@ impl Sandbox {
         for (src, dst) in &self.ro_binds {
             if src.exists() {
                 let full_dst = new_root.join(dst.strip_prefix("/").unwrap_or(dst));
-                std::fs::create_dir_all(&full_dst)?;
+                if src.is_dir() {
+                    std::fs::create_dir_all(&full_dst)?;
+                } else {
+                    // For files, create parent directory and an empty file to mount over
+                    if let Some(parent) = full_dst.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(&full_dst, "")?;
+                }
                 mount::bind_mount(src, &full_dst, true)?;
             }
         }
@@ -319,7 +340,15 @@ impl Sandbox {
         for (src, dst) in &self.rw_binds {
             if src.exists() {
                 let full_dst = new_root.join(dst.strip_prefix("/").unwrap_or(dst));
-                std::fs::create_dir_all(&full_dst)?;
+                if src.is_dir() {
+                    std::fs::create_dir_all(&full_dst)?;
+                } else {
+                    // For files, create parent directory and an empty file to mount over
+                    if let Some(parent) = full_dst.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(&full_dst, "")?;
+                }
                 mount::bind_mount(src, &full_dst, false)?;
             }
         }
@@ -332,10 +361,30 @@ impl Sandbox {
 }
 
 /// Create a default sandbox for a jail
-pub fn create_jail_sandbox(worktree_path: &Path, config: &Config) -> Sandbox {
-    SandboxBuilder::new(worktree_path)
+pub fn create_jail_sandbox(worktree_path: &Path, config: &Config, entrypoint: Option<&[String]>) -> Sandbox {
+    let mut builder = SandboxBuilder::new(worktree_path)
         .with_config(config)
-        .env("HOME", "/")
-        .workdir("/")
-        .build()
+        .env("HOME", "/home/user")
+        .env("USER", "user")
+        .workdir("/");
+
+    // If entrypoint is specified and not in a standard system path,
+    // bind-mount it to make it accessible inside the jail
+    if let Some(ep) = entrypoint {
+        if let Some(cmd) = ep.first() {
+            let ep_path = Path::new(cmd);
+            // Check if the binary is outside standard system paths
+            let in_system_path = ep_path.starts_with("/usr")
+                || ep_path.starts_with("/bin")
+                || ep_path.starts_with("/sbin")
+                || ep_path.starts_with("/lib");
+
+            if !in_system_path {
+                // Bind mount the binary read-only at the same path inside the jail
+                builder = builder.ro_bind(ep_path, ep_path);
+            }
+        }
+    }
+
+    builder.build()
 }

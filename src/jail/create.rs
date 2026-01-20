@@ -3,12 +3,69 @@ use crate::error::{Error, Result};
 use crate::state::{JailInfo, State};
 use crate::validation::{validate_git_repo, validate_jail_name};
 use chrono::Utc;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use uuid::Uuid;
 
+/// Parse and resolve an entrypoint string into command + args
+/// e.g., "claude --dangerously-skip-permissions" -> ["/path/to/claude", "--dangerously-skip-permissions"]
+fn parse_entrypoint(entrypoint: &str) -> Result<Vec<String>> {
+    // Simple shell-like parsing (split on whitespace, respect quotes)
+    let parts = shell_words::split(entrypoint)
+        .map_err(|e| Error::Config(format!("invalid entrypoint syntax: {e}")))?;
+
+    if parts.is_empty() {
+        return Err(Error::Config("entrypoint cannot be empty".to_string()));
+    }
+
+    // Resolve the command (first part)
+    let cmd = &parts[0];
+    let resolved_cmd = resolve_command(cmd)?;
+
+    // Build result: resolved command + original args
+    let mut result = vec![resolved_cmd.to_string_lossy().to_string()];
+    result.extend(parts[1..].iter().cloned());
+
+    Ok(result)
+}
+
+/// Resolve a command to an absolute path
+fn resolve_command(cmd: &str) -> Result<PathBuf> {
+    let path = Path::new(cmd);
+
+    // If it's already an absolute path, just verify it exists
+    if path.is_absolute() {
+        if path.exists() {
+            return Ok(path.to_path_buf());
+        } else {
+            return Err(Error::Config(format!(
+                "entrypoint not found: {}",
+                cmd
+            )));
+        }
+    }
+
+    // Otherwise, search PATH using `which`
+    let output = Command::new("which")
+        .arg(cmd)
+        .output()?;
+
+    if output.status.success() {
+        let path_str = String::from_utf8_lossy(&output.stdout);
+        let resolved = PathBuf::from(path_str.trim());
+        if resolved.exists() {
+            return Ok(resolved);
+        }
+    }
+
+    Err(Error::Config(format!(
+        "entrypoint '{}' not found in PATH",
+        cmd
+    )))
+}
+
 /// Create a new jail from a git repository
-pub fn create(name: &str, repo: &Path, branch: Option<&str>, _config: &Config) -> Result<()> {
+pub fn create(name: &str, repo: &Path, branch: Option<&str>, entrypoint: Option<&str>, _config: &Config) -> Result<()> {
     // Validate inputs
     validate_jail_name(name)?;
     validate_git_repo(repo)?;
@@ -55,6 +112,19 @@ pub fn create(name: &str, repo: &Path, branch: Option<&str>, _config: &Config) -
         return Err(Error::WorktreeCreation(stderr.to_string()));
     }
 
+    // Parse and resolve entrypoint if provided
+    let resolved_entrypoint = if let Some(ep) = entrypoint {
+        let parsed = parse_entrypoint(ep)?;
+        if parsed.len() == 1 {
+            println!("Entrypoint: {}", parsed[0]);
+        } else {
+            println!("Entrypoint: {} {}", parsed[0], parsed[1..].join(" "));
+        }
+        Some(parsed)
+    } else {
+        None
+    };
+
     // Create jail info
     let info = JailInfo {
         id: Uuid::new_v4(),
@@ -64,6 +134,7 @@ pub fn create(name: &str, repo: &Path, branch: Option<&str>, _config: &Config) -
         branch_name,
         created_at: Utc::now(),
         pid: None,
+        entrypoint: resolved_entrypoint,
     };
 
     // Add to state

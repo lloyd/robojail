@@ -17,8 +17,11 @@ pub fn run(name: &str, command: &[String], config: &Config) -> Result<i32> {
     }
 
     let worktree_path = jail.worktree_path.clone();
+    let entrypoint = jail.entrypoint.clone();
 
     // Create sandbox and run command
-    let sandbox = create_jail_sandbox(&worktree_path, config);
+    // We pass entrypoint so it gets bind-mounted even for explicit commands
+    let sandbox = create_jail_sandbox(&worktree_path, config, entrypoint.as_deref());
     sandbox.run(command)
 }
+

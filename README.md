@@ -68,14 +68,22 @@ robojail destroy ai-task
 Create a new jail from a git repository.
 
 ```bash
-robojail create --name <name> --repo <path> [--branch <branch>]
+robojail create --name <name> --repo <path> [--branch <branch>] [--entrypoint <program>]
 ```
 
 - `--name` - Unique name for the jail (alphanumeric, dash, underscore)
 - `--repo` - Path to the git repository
 - `--branch` - Base branch for the worktree (default: HEAD)
+- `--entrypoint` - Program to run when entering the jail (e.g., `claude`, `python3`)
 
 Creates a git worktree at `~/.local/share/robojail/jails/<name>/`.
+
+The entrypoint can be:
+- A command name (will be resolved via `which`): `--entrypoint claude`
+- An absolute path: `--entrypoint /usr/bin/python3`
+- A path in your home directory: `--entrypoint ~/.local/bin/claude`
+
+The entrypoint binary is automatically bind-mounted into the jail.
 
 ### `robojail list`
 
@@ -93,7 +101,7 @@ Enter a jail interactively.
 robojail enter <name>
 ```
 
-Drops you into a shell inside the sandboxed environment.
+If the jail has an entrypoint, runs that program. Otherwise drops you into a shell.
 
 ### `robojail run`
 
@@ -237,11 +245,14 @@ robojail destroy my-jail --force
 RoboJail is designed for running AI coding assistants like Claude Code in isolation:
 
 ```bash
-# Create jail for AI work
-robojail create --name claude-task --repo ~/myproject
+# Create jail for AI work with Claude as the entrypoint
+robojail create --name claude-task --repo ~/myproject --entrypoint claude
 
-# Run Claude Code inside the jail
-robojail run claude-task -- claude
+# Enter runs the entrypoint automatically
+robojail enter claude-task
+
+# Or run a one-off command
+robojail run claude-task -- cargo test
 
 # Monitor from another terminal
 watch robojail status claude-task

@@ -17,6 +17,9 @@ pub struct JailInfo {
     pub created_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
+    /// Entrypoint command to run (first element is resolved path, rest are args)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -127,6 +130,7 @@ mod tests {
             branch_name: "robojail/test-abc123".to_string(),
             created_at: Utc::now(),
             pid: None,
+            entrypoint: None,
         };
 
         let json = serde_json::to_string(&info).unwrap();
@@ -145,6 +149,7 @@ mod tests {
             branch_name: "robojail/test".to_string(),
             created_at: Utc::now(),
             pid: None,
+            entrypoint: None,
         };
 
         // Can't actually save in tests without mocking, but we can test logic

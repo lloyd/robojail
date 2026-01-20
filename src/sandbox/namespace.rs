@@ -12,7 +12,9 @@ use std::io::Write;
 /// Set up user namespace with UID/GID mapping
 ///
 /// This must be called first, before any other namespace operations.
-/// It creates a user namespace where the current user is mapped to root (UID 0).
+/// It creates a user namespace where the current user is mapped to UID 1000 (non-root).
+/// We avoid mapping to UID 0 because some programs (like Claude Code) refuse to run
+/// with certain flags when they detect root privileges.
 pub fn setup_user_namespace() -> Result<()> {
     let uid = getuid();
     let gid = getgid();
@@ -26,17 +28,17 @@ pub fn setup_user_namespace() -> Result<()> {
         }
     })?;
 
-    // Write UID mapping: map our UID to 0 inside the namespace
+    // Write UID mapping: map our UID to 1000 inside the namespace (non-root)
     // Format: <inside_uid> <outside_uid> <count>
-    let uid_map = format!("0 {} 1", uid);
+    let uid_map = format!("1000 {} 1", uid);
     write_to_proc_file("/proc/self/uid_map", &uid_map)?;
 
     // CRITICAL: Deny setgroups before writing gid_map
     // This is a security requirement to prevent privilege escalation
     write_to_proc_file("/proc/self/setgroups", "deny")?;
 
-    // Write GID mapping
-    let gid_map = format!("0 {} 1", gid);
+    // Write GID mapping: map to GID 1000 as well
+    let gid_map = format!("1000 {} 1", gid);
     write_to_proc_file("/proc/self/gid_map", &gid_map)?;
 
     Ok(())
